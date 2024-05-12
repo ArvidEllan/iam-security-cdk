@@ -1,39 +1,44 @@
-import * as cdk from 'aws-cdk-lib';
-import * as iam from 'aws-cdk-lib/aws-iam';
-import * as sns from 'aws-cdk-lib/aws-sns';
-import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import { App, Stack, StackProps } from 'aws-cdk-lib';
+import { IAMRole, IAMPolicy, PolicyStatement, Effect, PolicyDocument } from 'aws-cdk-lib/aws-iam';
+import { DynamoDBTable } from 'aws-cdk-lib/aws-dynamodb';
 
-export class IamPolicyCheckerStack extends cdk.Stack {
-  constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
+class IAMPolicyValidationStack extends Stack {
+  constructor(scope: App, id: string, props?: StackProps) {
     super(scope, id, props);
 
-    // Example IAM role
-    const role = new iam.Role(this, 'MyRole', {
-      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-    });
+    // Retrieve all IAM roles and policies defined in the deployment scripts
+    const iamRoles = this.node.findAll(IAMRole);
+    const iamPolicies = this.node.findAll(IAMPolicy);
 
-    // Attach a policy to the role
-    const policy = new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['dynamodb:*'],
-      resources: ['*'],
-    });
-
-    role.addPolicy(policy);
-
-    // Logic to check for full DynamoDB access and alert
-    this.checkIamPolicy(role);
+    // Validate IAM roles and policies
+    this.validateIAMRoles(iamRoles);
+    this.validateIAMPolicies(iamPolicies);
   }
 
-  private checkIamPolicy(role: iam.Role) {
-    // Here you would implement the logic to check if the role has full access to DynamoDB
-    // For demonstration, let's assume we're logging the policy
-    console.log(`Role ${role.roleName} has the following policy: ${JSON.stringify(roleAttachedPolicies)}`);
-    
-    // If full access is detected, you would typically use AWS CDK's logging or integrate with an alerting service
+  validateIAMRoles(iamRoles: IAMRole[]) {
+    for (const role of iamRoles) {
+      // Check if the role grants full access to DynamoDB
+      const permissiveStatements = role.assumeRolePolicy.statementCount > 0
+        ? role.assumeRolePolicy.statements.filter(s => s.effect === Effect.ALLOW && s.actions.includes('dynamodb:*'))
+        : [];
+
+      if (permissiveStatements.length > 0) {
+        throw new Error(`IAM role '${role.roleName}' grants full access to DynamoDB, which is not allowed.`);
+      }
+    }
+  }
+
+  validateIAMPolicies(iamPolicies: IAMPolicy[]) {
+    for (const policy of iamPolicies) {
+      // Check if the policy grants full access to DynamoDB
+      const permissiveStatements = policy.document.statementCount > 0
+        ? policy.document.statements.filter(s => s.effect === Effect.ALLOW && s.actions.includes('dynamodb:*'))
+        : [];
+
+      if (permissiveStatements.length > 0) {
+        throw new Error(`IAM policy '${policy.policyName}' grants full access to DynamoDB, which is not allowed.`);
+      }
+    }
   }
 }
 
-// Instantiate the stack
-const app = new cdk.App();
-new IamPolicyCheckerStack(app, 'IamPolicyCheckerStack');
