@@ -1,44 +1,33 @@
-import { App, Stack, StackProps } from 'aws-cdk-lib';
-import { IAMRole, IAMPolicy, PolicyStatement, Effect, PolicyDocument } from 'aws-cdk-lib/aws-iam';
-import { DynamoDBTable } from 'aws-cdk-lib/aws-dynamodb';
 
-class IAMPolicyValidationStack extends Stack {
-  constructor(scope: App, id: string, props?: StackProps) {
+import * as cdk from '@aws-cdk/core';
+import * as iam from '@aws-cdk/aws-iam';
+
+export class IamPolicyCheck extends cdk.Stack {
+  constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Retrieve all IAM roles and policies defined in the deployment scripts
-    const iamRoles = this.node.findAll(IAMRole);
-    const iamPolicies = this.node.findAll(IAMPolicy);
-
-    // Validate IAM roles and policies
-    this.validateIAMRoles(iamRoles);
-    this.validateIAMPolicies(iamPolicies);
+    // Call the function to check IAM policies
+    this.checkIamPolicies();
   }
 
-  validateIAMRoles(iamRoles: IAMRole[]) {
-    for (const role of iamRoles) {
-      // Check if the role grants full access to DynamoDB
-      const permissiveStatements = role.assumeRolePolicy.statementCount > 0
-        ? role.assumeRolePolicy.statements.filter(s => s.effect === Effect.ALLOW && s.actions.includes('dynamodb:*'))
-        : [];
+  private checkIamPolicies() {
+    // Create an IAM policy statement for DynamoDB access
+    const dynamoDBPolicyStatement = new iam.PolicyStatement({
+      actions: ['dynamodb:*'],
+      resources: ['*'], // Check all DynamoDB tables
+    });
 
-      if (permissiveStatements.length > 0) {
-        throw new Error(`IAM role '${role.roleName}' grants full access to DynamoDB, which is not allowed.`);
-      }
-    }
-  }
+    // Create an IAM policy
+    const iamPolicy = new iam.ManagedPolicy(this, 'IamPolicy', {
+      statements: [dynamoDBPolicyStatement],
+    });
 
-  validateIAMPolicies(iamPolicies: IAMPolicy[]) {
-    for (const policy of iamPolicies) {
-      // Check if the policy grants full access to DynamoDB
-      const permissiveStatements = policy.document.statementCount > 0
-        ? policy.document.statements.filter(s => s.effect === Effect.ALLOW && s.actions.includes('dynamodb:*'))
-        : [];
+    // Check if any policy statement grants full access to DynamoDB
+    const hasFullAccess = iamPolicy.document.hasAnyAction('dynamodb:*');
 
-      if (permissiveStatements.length > 0) {
-        throw new Error(`IAM policy '${policy.policyName}' grants full access to DynamoDB, which is not allowed.`);
-      }
+    // Throw an error to block deployment if any policy grants full access to DynamoDB
+    if (hasFullAccess) {
+      throw new Error('IAM policy grants full access to DynamoDB. Deployment blocked.');
     }
   }
 }
-
